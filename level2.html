@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Year/Month Heatmap: Level 2</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .tooltip {
+      position: absolute;
+      background-color: white;
+      border: 1px solid #ccc;
+      padding: 5px;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    .cell {
+      stroke: #000000;
+    }
+    .line-chart {
+      fill: none;
+      stroke-width: 1.5px;
+    }
+    .line-chart-max {
+      stroke: black;
+    }
+    .line-chart-min {
+      stroke: rgb(255, 255, 255);
+    }
+    #toggle-btn {
+      display: block;
+      margin: 10px auto;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1 style="text-align: center;">Year/Month Heatmap: Level 2</h1>
+  
+  <button id="toggle-btn">Toggle Min/Max Temperature</button>
+
+  <div style="text-align: center;" id="heatmap-level2"></div>
+
+  <script>
+    const margin = { top: 50, right: 50, bottom: 50, left: 100 };
+    const width = 1200 - margin.left - margin.right;
+    const height = 600 - margin.top - margin.bottom;
+
+    const svg = d3.select("#heatmap-level2")
+      .append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const tooltip = d3.select("body").append("div")
+      .attr("class", "tooltip")
+      .style("opacity", 0);
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+    let useMinColor = true;
+
+    function loadCSV() {
+      d3.csv("temperature_daily.csv").then(allData => {
+        allData.forEach(d => {
+            d.date = new Date(d.date);
+            d.day = d.date.getDate();
+            d.month = d.date.getMonth();
+            d.year = d.date.getUTCFullYear();
+            d.min_temperature = +d.min_temperature;
+            d.max_temperature = +d.max_temperature;
+        });
+
+        const mostRecentYear = d3.max(allData, d => d.year);
+        const data = allData.filter(d => d.year >= mostRecentYear - 9);
+        const nestedData = d3.group(data, d => d.year, d => d.month);
+
+        const years = Array.from(new Set(data.map(d => d.year)));
+        const months = Array.from(new Set(data.map(d => d.month))).sort((a, b) => a - b);
+
+        const minColorScale = d3.scaleSequential(d3.interpolateWarm)
+          .domain([d3.min(data, d => d.min_temperature), d3.max(data, d => d.min_temperature)]);
+        
+        const maxColorScale = d3.scaleSequential(d3.interpolateWarm)
+          .domain([d3.min(data, d => d.max_temperature), d3.max(data, d => d.max_temperature)]);
+
+        const xScale = d3.scaleBand().domain(years).range([0, width]).padding(0.05);
+        const yScale = d3.scaleBand().domain(months).range([0, height]).padding(0.05);
+
+        drawCells(nestedData, xScale, yScale, minColorScale, maxColorScale);
+        drawAxes(xScale, yScale);
+        drawLegend(minColorScale);
+
+        d3.select("#toggle-btn").on("click", () => {
+          useMinColor = !useMinColor;
+          updateColors(nestedData, minColorScale, maxColorScale);
+        });
+      });
+    }
+
+    function drawCells(nestedData, xScale, yScale, minColorScale, maxColorScale) {
+      svg.selectAll(".cell-group")
+        .data(Array.from(nestedData.entries()).flatMap(([year, months]) =>
+          Array.from(months.entries()).map(([month, days]) => ({
+            year,
+            month,
+            days,
+            maxTemp: d3.max(days, d => d.max_temperature),
+            minTemp: d3.min(days, d => d.min_temperature),
+          }))
+        ))
+        .enter()
+        .append("g")
+        .attr("transform", d => `translate(${xScale(d.year)},${yScale(d.month)})`)
+        .each(function (d) {
+          const cellGroup = d3.select(this);
+
+          cellGroup.append("rect")
+            .attr("class", "cell")
+            .attr("width", xScale.bandwidth())
+            .attr("height", yScale.bandwidth())
+            .attr("fill", minColorScale(d.minTemp))
+            .on("mouseover", (event) => {
+              tooltip.style("opacity", 1)
+                .html(`Year: ${d.year}<br>Month: ${monthNames[d.month]}<br>Max Temp: ${d.maxTemp}°C<br>Min Temp: ${d.minTemp}°C`)
+                .style("left", `${event.pageX + 10}px`)
+                .style("top", `${event.pageY - 20}px`);
+            })
+            .on("mouseout", () => tooltip.style("opacity", 0));
+
+          const lineXScale = d3.scaleLinear()
+            .domain([1, new Date(d.year, d.month + 1, 0).getDate()])
+            .range([0, xScale.bandwidth()]);
+          const lineYScale = d3.scaleLinear()
+            .domain([d3.min(d.days, day => day.min_temperature), d3.max(d.days, day => day.max_temperature)])
+            .range([yScale.bandwidth(), 0]);
+
+          const lineGeneratorMax = d3.line()
+            .x((_, i) => lineXScale(i + 1))
+            .y(day => lineYScale(day.max_temperature));
+
+          const lineGeneratorMin = d3.line()
+            .x((_, i) => lineXScale(i + 1))
+            .y(day => lineYScale(day.min_temperature));
+
+          cellGroup.append('path')
+            .datum(d.days)
+            .attr('class', 'line-chart line-chart-max')
+            .attr('fill', 'none')
+            .attr('d', lineGeneratorMax);
+
+          cellGroup.append('path')
+            .datum(d.days)
+            .attr('class', 'line-chart line-chart-min')
+            .attr('fill', 'none')
+            .attr('d', lineGeneratorMin);
+        });
+    }
+
+    function updateColors(nestedData, minColorScale, maxColorScale) {
+      svg.selectAll(".cell")
+        .transition()
+        .duration(500)
+        .attr("fill", d => useMinColor ? minColorScale(d.minTemp) : maxColorScale(d.maxTemp));
+    }
+
+    function drawAxes(xScale, yScale) {
+      svg.append("g").call(d3.axisTop(xScale).tickFormat(d => `${d}`));
+      svg.append("g").call(d3.axisLeft(yScale).tickFormat(d => monthNames[d]));
+    }
+
+    function drawLegend(colorScale) {
+        const legendWidth = 300;
+        const legendHeight = 20;
+        const legendSvg = svg.append("g").attr("transform", `translate(${width / 2 - legendWidth / 2},${height + 5})`);
+
+        // Define color scale (0 to 40)
+        const legendScale = d3.scaleLinear()
+            .domain([0, 40]) // Fixed range from 0 to 40
+            .range([0, legendWidth]);
+
+        legendSvg.selectAll(".legend-rect")
+            .data(d3.range(0, 41, 40 / legendWidth))
+            .enter()
+            .append("rect")
+            .attr("x", (d, i) => i)
+            .attr("width", 1)
+            .attr("height", legendHeight)
+            .attr("fill", d => colorScale(d));
+        
+          // Add axis to legend
+        legendSvg.append("g")
+            .call(d3.axisBottom(legendScale).ticks(5)) // Add labels for 0, 10, 20, 30, 40
+            .attr("transform", `translate(0,${legendHeight})`);
+}
+
+    loadCSV();
+  </script>
+</body>
+</html>
