@@ -10,8 +10,10 @@ This assignment contains two HTML files, `level1.html` and `level2.html`, for Le
     * `http://localhost:8000/Level2.html`
 
 **Level 1**
-(./level1_max.png)(./level1_min.png)
+![Level 1 Max](./level1_max.png)
+![level 1 Min](./level1_min.png)
 
 
 **Level 2**
-(./level2_max.png)(./level2_min.png)
+![level 2 Max](./level2_max.png)
+![level 2 Min](./level2_min.png)
